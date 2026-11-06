@@ -62,6 +62,8 @@ class App(tk.Tk):
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
         ttk.Button(bar, text="Запустить", command=self.run).pack(side="left", padx=2)
+        ttk.Button(bar, text="График шума", command=self.show_noise_chart)\
+            .pack(side="left", padx=2)
         ttk.Button(bar, text="Сохранить результаты", command=self.save_results)\
             .pack(side="left", padx=2)
 
@@ -208,6 +210,19 @@ class App(tk.Tk):
         self._canvas = FigureCanvasTkAgg(fig, master=self.frame_canvas)
         self._canvas.draw()
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def show_noise_chart(self) -> None:
+        """Отдельное окно с графиком сравнения шума «до/после» очистки."""
+        if self.result is None:
+            messagebox.showinfo("Нет результата", "Сначала нажмите «Запустить».",
+                                parent=self)
+            return
+        win = tk.Toplevel(self)
+        win.title(f"Шум до/после очистки — {self.result['name']}")
+        win.geometry("920x440")
+        canvas = FigureCanvasTkAgg(P.build_noise_chart(self.result), master=win)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
     def save_results(self) -> None:
         if self.result is None:

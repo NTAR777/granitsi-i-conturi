@@ -5,6 +5,38 @@
     "scharr": 22,
     "canny": 22
   },
+  "noise": {
+    "sobel": {
+      "raw": {
+        "components": 254,
+        "noise_pixels_pct": 3.24
+      },
+      "clean": {
+        "components": 58,
+        "noise_pixels_pct": 0.37
+      }
+    },
+    "scharr": {
+      "raw": {
+        "components": 256,
+        "noise_pixels_pct": 3.13
+      },
+      "clean": {
+        "components": 68,
+        "noise_pixels_pct": 0.4
+      }
+    },
+    "canny": {
+      "raw": {
+        "components": 75,
+        "noise_pixels_pct": 26.47
+      },
+      "clean": {
+        "components": 24,
+        "noise_pixels_pct": 0.04
+      }
+    }
+  },
   "areas_px": {
     "sobel": [
       1195.0,

@@ -6,7 +6,9 @@
     2. Границы: Sobel, Scharr (градиентные фильтры) и Canny (гистерезис).
     3. Очистка масок морфологией: открытие/закрытие (disk), заливка дыр.
     4. Контуры и подсчёт объектов (OpenCV), фильтрация по площади в пикселях.
-    5. Сохранение «до/после» (PNG), сводный panel.png и results.json.
+    5. Сравнение шума «до/после» очистки (компоненты, % шумовых пикселей).
+    6. Сохранение «до/после» (PNG), сводный panel.png, график шума
+       noise_compare.png и results.json.
 
 Модуль не зависит от интерфейса: его используют и CLI (cli.py), и GUI (gui.py).
 """
@@ -195,6 +197,37 @@ def make_overlay(rgb_u8: np.ndarray, contours: Sequence[np.ndarray]) -> np.ndarr
     return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
 
+# ----------------------------------------------------------------------------
+# Оценка шума «до/после» очистки
+# ----------------------------------------------------------------------------
+
+def component_areas(mask: np.ndarray) -> np.ndarray:
+    """Площади связных компонент бинарной маски (без фона), px."""
+    mask_u8 = np.asarray(mask, dtype=np.uint8)
+    _, _, stats, _ = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
+    return stats[1:, cv2.CC_STAT_AREA].astype(np.int64)
+
+
+def noise_stats(mask_raw: np.ndarray, mask_clean: np.ndarray, p: Params) -> dict:
+    """Сравнение «шумности» маски до и после морфологической очистки.
+
+    Шум — компоненты с площадью < min_area. Метрики: число связных компонент
+    и доля шумовых пикселей (в % от площади маски) до и после очистки.
+    """
+    def summarize(sizes: np.ndarray) -> dict:
+        total = int(sizes.sum())
+        noise = int(sizes[sizes < p.min_area].sum())
+        return {
+            "components": int(sizes.size),
+            "noise_pixels_pct": round(100.0 * noise / total, 2) if total else 0.0,
+        }
+
+    return {
+        "raw": summarize(component_areas(mask_raw)),
+        "clean": summarize(component_areas(mask_clean)),
+    }
+
+
 def process(img: np.ndarray, p: Params, name: str = "image") -> dict:
     """Полный пайплайн одного кадра: границы -> морфология -> контуры -> подсчёт."""
     p = validate_params(p)
@@ -211,9 +244,11 @@ def process(img: np.ndarray, p: Params, name: str = "image") -> dict:
             "count": count,
             "areas": areas,
             "overlay": make_overlay(rgb_u8, objs),
+            "noise": noise_stats(raw, mask, p),
         }
     return {
         "name": name,
+        "min_area": float(p.min_area),
         "is_color": bool(np.asarray(img).ndim == 3),
         "rgb_u8": rgb_u8,
         "gray_u8": util.img_as_ubyte(gray),
@@ -255,8 +290,58 @@ def build_panel(result: dict, width: float = 11.0, row_height: float = 2.4):
     return fig
 
 
+def build_noise_chart(result: dict, width: float = 9.0, height: float = 3.8):
+    """График сравнения шума в масках «до/после» морфологической очистки.
+
+    Слева — число связных компонент в сырой маске границ и после очистки
+    (лог-шкала: разница достигает порядков). Справа — доля шумовых пикселей
+    (компоненты с площадью < min_area) в % от площади маски.
+    """
+    import matplotlib.figure
+
+    methods = [m for m in METHOD_ORDER if m in result["methods"]]
+    fig = matplotlib.figure.Figure(layout="constrained",
+                                   figsize=(width, height), dpi=100)
+    fig.suptitle(f"Шум в масках границ: до и после морфологии — {result['name']}",
+                 fontsize=11)
+
+    x = np.arange(len(methods))
+    w = 0.36
+    raw_comp = [result["methods"][m]["noise"]["raw"]["components"] for m in methods]
+    clean_comp = [result["methods"][m]["noise"]["clean"]["components"] for m in methods]
+    raw_pct = [result["methods"][m]["noise"]["raw"]["noise_pixels_pct"] for m in methods]
+    clean_pct = [result["methods"][m]["noise"]["clean"]["noise_pixels_pct"] for m in methods]
+
+    ax1 = fig.add_subplot(1, 2, 1)
+    b1 = ax1.bar(x - w / 2, raw_comp, w, color="#c0504d", label="до очистки")
+    b2 = ax1.bar(x + w / 2, clean_comp, w, color="#4f81bd", label="после очистки")
+    ax1.bar_label(b1, fontsize=8)
+    ax1.bar_label(b2, fontsize=8)
+    ax1.set_yscale("log")
+    ax1.set_ylim(top=max(max(raw_comp, default=1), max(clean_comp, default=1)) * 3)
+    ax1.set_xticks(x, methods, fontsize=9)
+    ax1.set_ylabel("связных компонент (log)")
+    ax1.set_title("Число компонент в маске", fontsize=10)
+    ax1.grid(axis="y", alpha=0.3)
+    ax1.legend(fontsize=8)
+
+    ax2 = fig.add_subplot(1, 2, 2)
+    b3 = ax2.bar(x - w / 2, raw_pct, w, color="#c0504d", label="до очистки")
+    b4 = ax2.bar(x + w / 2, clean_pct, w, color="#4f81bd", label="после очистки")
+    ax2.bar_label(b3, fmt="%.1f", fontsize=8)
+    ax2.bar_label(b4, fmt="%.1f", fontsize=8)
+    ax2.set_ylim(0, max(max(raw_pct, default=1), max(clean_pct, default=1)) * 1.3)
+    ax2.set_xticks(x, methods, fontsize=9)
+    ax2.set_ylabel("% пикселей маски")
+    ax2.set_title(f"Шумовые пиксели (площадь компоненты < {result['min_area']:.0f} px)",
+                  fontsize=10)
+    ax2.grid(axis="y", alpha=0.3)
+    ax2.legend(fontsize=8)
+    return fig
+
+
 def save_result(result: dict, p: Params, out_dir: str | Path,
-                with_panel: bool = True) -> List[Path]:
+                with_panel: bool = True, with_noise_chart: bool = True) -> List[Path]:
     """Папка «до/после»: before/original.png, after/*, panel.png, results.json."""
     d = Path(out_dir)
     (d / "before").mkdir(parents=True, exist_ok=True)
@@ -287,9 +372,15 @@ def save_result(result: dict, p: Params, out_dir: str | Path,
         build_panel(result).savefig(ppath, dpi=150, bbox_inches="tight")
         saved.append(ppath)
 
+    if with_noise_chart:
+        npath = d / "noise_compare.png"
+        build_noise_chart(result).savefig(npath, dpi=150, bbox_inches="tight")
+        saved.append(npath)
+
     summary = {
         "image": result["name"],
         "counts": {m: info["count"] for m, info in result["methods"].items()},
+        "noise": {m: info["noise"] for m, info in result["methods"].items()},
         "areas_px": {m: [round(a, 1) for a in info["areas"]]
                      for m, info in result["methods"].items()},
         "params": asdict(p),

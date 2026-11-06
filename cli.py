@@ -59,6 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="папка результата (по умолчанию results/<имя источника>)")
     par.add_argument("--no-panel", action="store_true", dest="no_panel",
                      help="не сохранять сводный panel.png")
+    par.add_argument("--no-noise-chart", action="store_true", dest="no_noise_chart",
+                     help="не сохранять график сравнения шума noise_compare.png")
     par.add_argument("--list", action="store_true",
                      help="показать доступные демо-изображения и выйти")
     return par
@@ -91,10 +93,12 @@ def params_from_args(args: argparse.Namespace) -> P.Params:
     return P.validate_params(p)
 
 
-def run_frame(img, name: str, p: P.Params, out_dir: Path, with_panel: bool) -> dict:
+def run_frame(img, name: str, p: P.Params, out_dir: Path,
+              with_panel: bool, with_noise_chart: bool) -> dict:
     """Обработать один кадр, сохранить «до/после», вернуть счётчики."""
     result = P.process(img, p, name=name)
-    P.save_result(result, p, out_dir, with_panel=with_panel)
+    P.save_result(result, p, out_dir,
+                  with_panel=with_panel, with_noise_chart=with_noise_chart)
     return {m: info["count"] for m, info in result["methods"].items()}
 
 
@@ -118,7 +122,8 @@ def main(argv=None) -> int:
     try:
         if src in P.DEMO_SOURCES:
             out_root = out_root or Path("results") / src
-            counts = run_frame(P.load_demo(src), src, p, out_root, not args.no_panel)
+            counts = run_frame(P.load_demo(src), src, p, out_root,
+                               not args.no_panel, not args.no_noise_chart)
             summary.append((src, counts))
         elif path.is_dir():
             files = P.list_image_files(path)
@@ -128,12 +133,14 @@ def main(argv=None) -> int:
             out_root = out_root or Path("results") / path.name
             for f in files:
                 img = P.load_image_file(f)
-                counts = run_frame(img, f.stem, p, out_root / f.stem, not args.no_panel)
+                counts = run_frame(img, f.stem, p, out_root / f.stem,
+                                   not args.no_panel, not args.no_noise_chart)
                 summary.append((f.name, counts))
         elif path.is_file():
             img = P.load_image_file(path)
             out_root = out_root or Path("results") / path.stem
-            counts = run_frame(img, path.stem, p, out_root, not args.no_panel)
+            counts = run_frame(img, path.stem, p, out_root,
+                               not args.no_panel, not args.no_noise_chart)
             summary.append((path.name, counts))
         else:
             print(f"Источник «{src}» не найден. Демо: {', '.join(P.DEMO_SOURCES)}",
